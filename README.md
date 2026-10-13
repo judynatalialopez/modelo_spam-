@@ -15,12 +15,14 @@ Fuente usada: `https://raw.githubusercontent.com/justmarkham/pycon-2016-tutorial
 ## Estructura
 ```
 spam_project/
-├── notebook_spam_gru.ipynb   # Notebook de experimentación (Google Colab)
+├── notebook_spam_gru.ipynb   # Notebook de experimentación (Google Colab) — inglés
+├── notebook_spam_es.ipynb    # Notebook para entrenar la versión en ESPAÑOL (Colab)
 ├── train.py                  # Entrenamiento + EDA + evaluación + gráficas
 ├── predict.py                # Predicción por línea de comandos
 ├── spam_utils.py             # Limpieza de texto compartida (train/predict/app)
 ├── app.py                    # Aplicación Streamlit
-├── models/spam_gru_model.keras   # Modelo entrenado
+├── models/spam_gru_model.keras   # Modelo entrenado (inglés)
+│   └── spam_gru_model_es.keras   # (lo generas tú con notebook_spam_es.ipynb)
 ├── data/sms.tsv              # Dataset
 ├── reports/                  # Gráficas (EDA, curvas, matriz de confusión), métricas y predicciones de test
 ├── requirements.txt
@@ -68,6 +70,15 @@ La app se abre en `http://localhost:8501`.
 1. Sube `notebook_spam_gru.ipynb` a Colab (Archivo → Subir notebook).
 2. Ejecuta *Entorno de ejecución → Ejecutar todo*. El notebook descarga el dataset por sí mismo.
 3. Al final, descarga el modelo (`models/spam_gru_model.keras`) descomentando la línea de `files.download`.
+
+## Versión en español
+El modelo incluido está entrenado en inglés. Para usarlo con mensajes en español:
+1. Sube `notebook_spam_es.ipynb` a Colab y ejecútalo completo (usa el dataset *SMS Spam Multilingual Collection* de Hugging Face).
+2. Descarga `spam_gru_model_es.keras` y `metrics_es.json`.
+3. Cópialos a `models/` y `reports/` respectivamente.
+4. Ejecuta `streamlit run app.py`: aparecerá la opción **Español** en el selector de idioma de la barra lateral.
+
+> ⚠️ El español de ese dataset es **traducción automática** del SMS Spam Collection original, no mensajes escritos por personas. El notebook detecta las columnas y filtra el idioma automáticamente; si el CSV tiene un formato distinto, hay variables `TEXT_COL`, `LABEL_COL` y `LANG_COL` para fijarlas a mano.
 
 ## Solución de problemas
 - **Error al cargar el modelo** (versión de Keras/TensorFlow distinta): ejecuta `python train.py` para regenerarlo con tu versión.

@@ -3,6 +3,7 @@ import re
 
 DATA_URL = "https://raw.githubusercontent.com/justmarkham/pycon-2016-tutorial/master/data/sms.tsv"
 MODEL_PATH = "models/spam_gru_model.keras"
+MODEL_PATH_ES = "models/spam_gru_model_es.keras"
 THRESHOLD = 0.5
 
 URL_RE = re.compile(r"(https?://\S+|www\.\S+)")
@@ -21,4 +22,16 @@ def clean_text(text: str) -> str:
     text = PHONE_RE.sub(" phonetoken ", text)
     text = NUM_RE.sub(" numtoken ", text)
     text = re.sub(r"[^a-z\s]", " ", text)   # elimina puntuación y símbolos restantes
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def clean_text_es(text: str) -> str:
+    """Igual que clean_text pero conserva letras con tilde, ñ y ü (para español)."""
+    text = str(text).lower()
+    text = URL_RE.sub(" urltoken ", text)
+    text = EMAIL_RE.sub(" emailtoken ", text)
+    text = MONEY_RE.sub(" moneytoken ", text)
+    text = PHONE_RE.sub(" phonetoken ", text)
+    text = NUM_RE.sub(" numtoken ", text)
+    text = re.sub(r"[^a-záéíóúüñ\s]", " ", text)   # elimina ¿ ¡ y puntuación
     return re.sub(r"\s+", " ", text).strip()
