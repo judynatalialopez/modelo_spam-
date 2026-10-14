@@ -1,0 +1,13 @@
+text,etiqueta,predicción,confianza,correcta
+No hay mayores problemas dice vocero Lewin Mejía sobre amago de incendio... es un cen,negativo,negativo,0.43128043,True
+"@user y mi pobre hija tragando, no es justo",negativo,negativo,0.3974188,True
+"Llevo dos claras de huevo batidas en mis raíces para que me crezca el pelo, como no f",negativo,negativo,0.44310516,True
+"gritaba muchísimo, mordió a mi hermana y lo tenían que agarrar pfff de verdad lo he p",negativo,negativo,0.42384216,True
+Quiero como tener carro para hacer todo rápido,neutral,neutral,0.35789967,True
+@user @user jajaja ya somos un pollito! La próxima semana? a ver que dice @user,neutral,neutral,0.4255879,True
+"Yo veía #VBQ por Dani y Pamela, normal que maten a mi otp. Siempre me pasa jajhshdga",neutral,neutral,0.42227143,True
+"Queda claro que yo solo vivo para viajar~ No necesito casas ni propiedades, solo nece",neutral,negativo,0.4909021,False
+que madre mas graciosa tengo,positivo,positivo,0.35347575,True
+"@user Gracias  ya me pasó una vez y los antibióticos fueron milagrosos, estoy deseand",positivo,neutral,0.37446555,False
+Envidio de buena manera a los que tienen la oportunidad de ir mañana al estadio,positivo,positivo,0.4735664,True
+@user muchas gracias por seguirme. Nos leemos,positivo,positivo,0.55097485,True

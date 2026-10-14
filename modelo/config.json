@@ -1,0 +1,16 @@
+{
+  "model": "lstm",
+  "max_len": 26,
+  "vocab_size": 10000,
+  "vocab_real": 7058,
+  "embed_dim": 64,
+  "units": 64,
+  "dropout": 0.4,
+  "batch_size": 32,
+  "seed": 42,
+  "labels": [
+    "positivo",
+    "neutral",
+    "negativo"
+  ]
+}

@@ -1,0 +1,5 @@
+modelo,épocas,val_accuracy,val_f1_macro,val_auc_ovr
+SimpleRNN,4,0.3626,0.3346,0.5126
+LSTM,5,0.4923,0.4908,0.6463
+GRU,5,0.4593,0.4533,0.6476
+BiLSTM,5,0.4857,0.4712,0.6784
