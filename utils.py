@@ -3,22 +3,22 @@
 Mantener la limpieza de texto en un único lugar garantiza que el
 preprocesamiento en entrenamiento y en inferencia sea idéntico.
 """
-import io
 import os
 import random
 import re
-import urllib.request
-import zipfile
 
 import numpy as np
 import pandas as pd
 
-DATASET_URL = "https://archive.ics.uci.edu/static/public/228/sms+spam+collection.zip"
+LABELS = ["positivo", "neutral", "negativo"]  # índice = id de clase (0, 1, 2)
+LABEL2ID = {l: i for i, l in enumerate(LABELS)}
+
+HF_BASE = ("https://huggingface.co/datasets/tyqiangz/multilingual-sentiments/"
+           "resolve/main/spanish/multilingual-sentiments-{split}.parquet")
 
 _URL_RE = re.compile(r"(https?://\S+|www\.\S+)")
-_EMAIL_RE = re.compile(r"\S+@\S+\.\S+")
-_LONGNUM_RE = re.compile(r"\b\d{5,}\b")  # teléfonos, códigos cortos, etc.
-_MONEY_RE = re.compile(r"[£$€]")
+_MENTION_RE = re.compile(r"@\w+")
+_REPEAT_RE = re.compile(r"(.)\1{2,}")  # "buenooooo" -> "buenoo"
 _SPACES_RE = re.compile(r"\s+")
 
 
@@ -32,36 +32,41 @@ def set_seed(seed: int = 42) -> None:
 
 
 def clean_text(text: str) -> str:
-    """Limpieza ligera: minúsculas y normalización de URLs, emails,
-    números largos y símbolos de moneda (señales muy útiles para spam).
-    La puntuación restante la elimina la capa TextVectorization del modelo.
+    """Limpieza ligera para sentimiento en español.
+
+    - Minúsculas (se conservan tildes y la ñ).
+    - URLs y menciones @usuario -> tokens genéricos.
+    - Letras repetidas ("buenooooo") se reducen a 2.
+    - NO se eliminan stopwords: "no", "muy", "nada" cambian el sentimiento.
+    La puntuación (incluyendo ¡ y ¿) la elimina la capa TextVectorization.
     """
     text = str(text).lower()
     text = _URL_RE.sub(" urltoken ", text)
-    text = _EMAIL_RE.sub(" emailtoken ", text)
-    text = _LONGNUM_RE.sub(" numtoken ", text)
-    text = _MONEY_RE.sub(" moneytoken ", text)
+    text = _MENTION_RE.sub(" usuario ", text)
+    text = _REPEAT_RE.sub(r"\1\1", text)
     return _SPACES_RE.sub(" ", text).strip()
 
 
 def load_dataset(data_dir: str = "data") -> pd.DataFrame:
-    """Carga SMS Spam Collection (UCI). Devuelve un DataFrame con columnas
-    ['label', 'text']. Si no existe en disco, lo descarga.
+    """Devuelve un DataFrame con columnas ['text', 'label'] (label = 0/1/2).
 
-    También acepta la versión de Kaggle si colocas 'spam.csv' en data/.
+    Fuente: Hugging Face `tyqiangz/multilingual-sentiments`, config `spanish`
+    (se unen train + validation + test y se re-divide después).
+    Alternativa offline: coloca data/dataset.csv con columnas `text,label`
+    (label puede ser 0/1/2 o positivo/neutral/negativo).
     """
     os.makedirs(data_dir, exist_ok=True)
-    kaggle_path = os.path.join(data_dir, "spam.csv")
-    uci_path = os.path.join(data_dir, "SMSSpamCollection")
+    csv_path = os.path.join(data_dir, "dataset.csv")
 
-    if os.path.exists(kaggle_path):
-        df = pd.read_csv(kaggle_path, encoding="latin-1")[["v1", "v2"]]
-        df.columns = ["label", "text"]
-        return df
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)[["text", "label"]]
+    else:
+        print("Descargando dataset desde Hugging Face...")
+        parts = [pd.read_parquet(HF_BASE.format(split=s)) for s in ("train", "validation", "test")]
+        df = pd.concat(parts, ignore_index=True)[["text", "label"]]
+        df.to_csv(csv_path, index=False)  # caché local
 
-    if not os.path.exists(uci_path):
-        print("Descargando dataset desde UCI...")
-        with urllib.request.urlopen(DATASET_URL) as resp:
-            zipfile.ZipFile(io.BytesIO(resp.read())).extract("SMSSpamCollection", data_dir)
-
-    return pd.read_csv(uci_path, sep="\t", header=None, names=["label", "text"])
+    if df["label"].dtype == object:
+        df["label"] = df["label"].str.lower().map(LABEL2ID)
+    df["label"] = df["label"].astype("int32")
+    return df

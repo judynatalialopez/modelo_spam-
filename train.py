@@ -1,16 +1,16 @@
-"""Entrenamiento de un clasificador de spam (SMS) con RNN / LSTM / GRU.
+"""Entrenamiento de un clasificador de sentimiento en español (positivo / neutral /
+negativo) con RNN, LSTM, BiLSTM o GRU.
 
 Uso:
     python train.py                       # BiLSTM por defecto
     python train.py --model gru --epochs 30
-    python train.py --model rnn
 
 Genera:
-    modelo/modelo_spam.keras   -> modelo entrenado (incluye TextVectorization)
-    modelo/config.json         -> hiperparámetros y umbral
-    reports/metrics.json       -> métricas en test
-    reports/*.png              -> curvas de entrenamiento, matriz de confusión, ROC
-    reports/predicciones_test.csv -> 10+ predicciones de ejemplo
+    modelo/modelo_sentimiento.keras  -> modelo entrenado (incluye TextVectorization)
+    modelo/config.json               -> hiperparámetros y etiquetas
+    reports/metrics.json             -> métricas en test
+    reports/*.png                    -> curvas, matriz de confusión, ROC
+    reports/predicciones_test.csv    -> 12 predicciones de ejemplo
 """
 import argparse
 import json
@@ -25,7 +25,6 @@ import pandas as pd
 import tensorflow as tf
 from sklearn.metrics import (
     ConfusionMatrixDisplay,
-    RocCurveDisplay,
     accuracy_score,
     classification_report,
     confusion_matrix,
@@ -33,13 +32,17 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     roc_auc_score,
+    roc_curve,
 )
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import label_binarize
 from sklearn.utils.class_weight import compute_class_weight
 from tensorflow import keras
 from tensorflow.keras import layers
 
-from utils import clean_text, load_dataset, set_seed
+from utils import LABELS, clean_text, load_dataset, set_seed
+
+NUM_CLASSES = len(LABELS)
 
 
 # ----------------------------------------------------------------------------
@@ -48,17 +51,23 @@ from utils import clean_text, load_dataset, set_seed
 def prepare_data(seed: int):
     df = load_dataset()
     df = df.dropna().drop_duplicates(subset="text").reset_index(drop=True)
-    df["y"] = (df["label"] == "spam").astype("int32")
+    df["etiqueta"] = df["label"].map(dict(enumerate(LABELS)))
     df["clean"] = df["text"].apply(clean_text)
 
+    print("\nDistribución de clases:\n", df["etiqueta"].value_counts())
+    print("\nVerifica que las etiquetas tengan sentido (2 ejemplos por clase):")
+    for lab in LABELS:
+        for t in df.loc[df["etiqueta"] == lab, "text"].head(2):
+            print(f"  [{lab}] {t[:100]}")
+
     # 70 / 15 / 15 estratificado. Se divide ANTES de adaptar el vocabulario.
-    train_df, temp_df = train_test_split(df, test_size=0.30, stratify=df["y"], random_state=seed)
-    val_df, test_df = train_test_split(temp_df, test_size=0.50, stratify=temp_df["y"], random_state=seed)
+    train_df, temp_df = train_test_split(df, test_size=0.30, stratify=df["label"], random_state=seed)
+    val_df, test_df = train_test_split(temp_df, test_size=0.50, stratify=temp_df["label"], random_state=seed)
     return train_df, val_df, test_df
 
 
 def make_ds(texts, labels, batch_size, shuffle=False, seed=42):
-    ds = tf.data.Dataset.from_tensor_slices((np.array(texts, dtype=str), np.array(labels, dtype="float32")))
+    ds = tf.data.Dataset.from_tensor_slices((np.array(texts, dtype=str), np.array(labels, dtype="int32")))
     if shuffle:
         ds = ds.shuffle(len(texts), seed=seed)
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
@@ -100,13 +109,13 @@ def build_model(vectorizer, kind, embed_dim, units, dropout):
     x = layers.Dropout(dropout)(x)
     x = layers.Dense(32, activation="relu")(x)
     x = layers.Dropout(dropout)(x)
-    outputs = layers.Dense(1, activation="sigmoid", name="prob_spam")(x)
+    outputs = layers.Dense(NUM_CLASSES, activation="softmax", name="probabilidades")(x)
 
-    model = keras.Model(inputs, outputs, name=f"spam_{kind}")
+    model = keras.Model(inputs, outputs, name=f"sentimiento_{kind}")
     model.compile(
         optimizer=keras.optimizers.Adam(1e-3),
-        loss="binary_crossentropy",
-        metrics=["accuracy", keras.metrics.Precision(name="precision"), keras.metrics.Recall(name="recall")],
+        loss="sparse_categorical_crossentropy",
+        metrics=["accuracy"],
     )
     return model
 
@@ -119,7 +128,7 @@ def plot_history(history, path):
     fig, axes = plt.subplots(1, 2, figsize=(11, 4))
     axes[0].plot(h["loss"], label="entrenamiento")
     axes[0].plot(h["val_loss"], label="validación")
-    axes[0].set(title="Pérdida", xlabel="Época", ylabel="Binary crossentropy")
+    axes[0].set(title="Pérdida", xlabel="Época", ylabel="Crossentropy")
     axes[0].legend()
     axes[1].plot(h["accuracy"], label="entrenamiento")
     axes[1].plot(h["val_accuracy"], label="validación")
@@ -130,47 +139,52 @@ def plot_history(history, path):
     plt.close()
 
 
-def evaluate(model, test_df, batch_size, reports_dir, threshold=0.5):
-    X, y = test_df["clean"].values, test_df["y"].values
-    probs = model.predict(make_ds(X, y, batch_size), verbose=0).ravel()
-    preds = (probs >= threshold).astype(int)
+def evaluate(model, test_df, batch_size, reports_dir):
+    X, y = test_df["clean"].values, test_df["label"].values
+    probs = model.predict(make_ds(X, y, batch_size), verbose=0)
+    preds = probs.argmax(axis=1)
 
     metrics = {
         "accuracy": accuracy_score(y, preds),
-        "precision": precision_score(y, preds),
-        "recall": recall_score(y, preds),
-        "f1": f1_score(y, preds),
-        "roc_auc": roc_auc_score(y, probs),
+        "precision_macro": precision_score(y, preds, average="macro"),
+        "recall_macro": recall_score(y, preds, average="macro"),
+        "f1_macro": f1_score(y, preds, average="macro"),
+        "f1_weighted": f1_score(y, preds, average="weighted"),
+        "roc_auc_ovr": roc_auc_score(y, probs, multi_class="ovr", average="macro"),
         "confusion_matrix": confusion_matrix(y, preds).tolist(),
         "n_test": int(len(y)),
-        "threshold": threshold,
     }
     print("\n=== Evaluación en TEST ===")
-    print(classification_report(y, preds, target_names=["ham", "spam"], digits=4))
-    print(f"ROC-AUC: {metrics['roc_auc']:.4f}")
+    print(classification_report(y, preds, target_names=LABELS, digits=4))
+    print(f"ROC-AUC (OvR, macro): {metrics['roc_auc_ovr']:.4f}")
 
-    ConfusionMatrixDisplay.from_predictions(y, preds, display_labels=["ham", "spam"], cmap="Blues")
+    ConfusionMatrixDisplay.from_predictions(y, preds, display_labels=LABELS, cmap="Blues")
     plt.title("Matriz de confusión (test)")
     plt.savefig(os.path.join(reports_dir, "matriz_confusion.png"), dpi=130, bbox_inches="tight")
     plt.close()
 
-    RocCurveDisplay.from_predictions(y, probs)
-    plt.title("Curva ROC (test)")
+    y_bin = label_binarize(y, classes=list(range(NUM_CLASSES)))
+    for i, lab in enumerate(LABELS):
+        fpr, tpr, _ = roc_curve(y_bin[:, i], probs[:, i])
+        plt.plot(fpr, tpr, label=f"{lab} (AUC={roc_auc_score(y_bin[:, i], probs[:, i]):.3f})")
+    plt.plot([0, 1], [0, 1], "k--", alpha=0.4)
+    plt.xlabel("Tasa de falsos positivos")
+    plt.ylabel("Tasa de verdaderos positivos")
+    plt.title("Curvas ROC uno-contra-resto (test)")
+    plt.legend()
     plt.savefig(os.path.join(reports_dir, "roc.png"), dpi=130, bbox_inches="tight")
     plt.close()
 
     return metrics, probs, preds
 
 
-def sample_predictions(test_df, probs, preds, reports_dir, n=12, seed=42):
+def sample_predictions(test_df, probs, preds, reports_dir, n_per_class=4, seed=42):
     out = test_df.copy()
-    out["prob_spam"] = probs
-    out["prediccion"] = np.where(preds == 1, "spam", "ham")
-    out["correcta"] = out["prediccion"] == out["label"]
-    # mitad spam, mitad ham
-    half = n // 2
-    parts = [g.sample(min(half, len(g)), random_state=seed) for _, g in out.groupby("label")]
-    sel = pd.concat(parts)[["text", "label", "prediccion", "prob_spam", "correcta"]]
+    out["prediccion"] = [LABELS[i] for i in preds]
+    out["confianza"] = probs.max(axis=1)
+    out["correcta"] = out["prediccion"] == out["etiqueta"]
+    parts = [g.sample(min(n_per_class, len(g)), random_state=seed) for _, g in out.groupby("etiqueta")]
+    sel = pd.concat(parts)[["text", "etiqueta", "prediccion", "confianza", "correcta"]]
     sel["text"] = sel["text"].str.slice(0, 90)
     sel.to_csv(os.path.join(reports_dir, "predicciones_test.csv"), index=False)
     print("\n=== Predicciones de ejemplo (test) ===")
@@ -200,9 +214,7 @@ def main():
     set_seed(args.seed)
 
     train_df, val_df, test_df = prepare_data(args.seed)
-    print(f"Train: {len(train_df)} | Val: {len(val_df)} | Test: {len(test_df)}")
-    print("Proporción de spam (train/val/test):",
-          [round(d['y'].mean(), 3) for d in (train_df, val_df, test_df)])
+    print(f"\nTrain: {len(train_df)} | Val: {len(val_df)} | Test: {len(test_df)}")
 
     vectorizer, max_len = build_vectorizer(train_df["clean"].values, args.vocab_size)
     print(f"max_len (p95) = {max_len} | vocabulario = {vectorizer.vocabulary_size()}")
@@ -212,19 +224,19 @@ def main():
 
     class_weight = None
     if not args.no_class_weight:
-        w = compute_class_weight("balanced", classes=np.array([0, 1]), y=train_df["y"].values)
-        class_weight = {0: float(w[0]), 1: float(w[1])}
+        w = compute_class_weight("balanced", classes=np.arange(NUM_CLASSES), y=train_df["label"].values)
+        class_weight = {i: float(v) for i, v in enumerate(w)}
         print("class_weight:", class_weight)
 
-    ckpt_path = os.path.join(args.out_dir, "checkpoint.keras")
     callbacks = [
         keras.callbacks.EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True),
-        keras.callbacks.ModelCheckpoint(ckpt_path, monitor="val_loss", save_best_only=True),
+        keras.callbacks.ModelCheckpoint(os.path.join(args.out_dir, "checkpoint.keras"),
+                                        monitor="val_loss", save_best_only=True),
     ]
 
     history = model.fit(
-        make_ds(train_df["clean"].values, train_df["y"].values, args.batch_size, shuffle=True, seed=args.seed),
-        validation_data=make_ds(val_df["clean"].values, val_df["y"].values, args.batch_size),
+        make_ds(train_df["clean"].values, train_df["label"].values, args.batch_size, shuffle=True, seed=args.seed),
+        validation_data=make_ds(val_df["clean"].values, val_df["label"].values, args.batch_size),
         epochs=args.epochs,
         class_weight=class_weight,
         callbacks=callbacks,
@@ -235,11 +247,10 @@ def main():
     metrics, probs, preds = evaluate(model, test_df, args.batch_size, args.reports_dir)
     sample_predictions(test_df, probs, preds, args.reports_dir, seed=args.seed)
 
-    # Guardado
-    model_path = os.path.join(args.out_dir, "modelo_spam.keras")
+    model_path = os.path.join(args.out_dir, "modelo_sentimiento.keras")
     model.save(model_path)
     config = {**vars(args), "max_len": max_len, "vocab_real": int(vectorizer.vocabulary_size()),
-              "threshold": 0.5, "epochs_entrenadas": len(history.history["loss"])}
+              "labels": LABELS, "epochs_entrenadas": len(history.history["loss"])}
     with open(os.path.join(args.out_dir, "config.json"), "w") as f:
         json.dump(config, f, indent=2)
     with open(os.path.join(args.reports_dir, "metrics.json"), "w") as f:

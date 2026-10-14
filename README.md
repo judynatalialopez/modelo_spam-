@@ -1,16 +1,16 @@
-# 📩 Detección de spam en SMS con RNN / LSTM / GRU
+# 💬 Análisis de sentimiento en español con RNN / LSTM / GRU
 
-Proyecto de Deep Learning para clasificar mensajes SMS como **spam** o **ham** (legítimo)
-usando redes recurrentes (SimpleRNN, LSTM, BiLSTM y GRU) en TensorFlow/Keras, con una
-aplicación web en Streamlit.
+Proyecto de Deep Learning que clasifica textos en español como **positivo**, **neutral** o **negativo**
+usando redes recurrentes (SimpleRNN, LSTM, BiLSTM y GRU) en TensorFlow/Keras, con una app en Streamlit.
 
 ## 1. Dataset
 
-- **SMS Spam Collection** (UCI Machine Learning Repository): ~5.574 mensajes en inglés,
-  etiquetados `ham` / `spam`. ~13 % son spam (clases desbalanceadas).
-- Fuente: https://archive.ics.uci.edu/dataset/228/sms+spam+collection
-- Es un problema **secuencial**: el significado depende del orden y contexto de las palabras.
-- Se descarga automáticamente al entrenar. Alternativa: coloca `spam.csv` (versión Kaggle) en `data/`.
+- **multilingual-sentiments, config `spanish`** (Hugging Face: `tyqiangz/multilingual-sentiments`, licencia Apache 2.0).
+- Textos en español con etiqueta de sentimiento: 0 = positivo, 1 = neutral, 2 = negativo.
+- Es un problema **secuencial**: el sentimiento depende del orden y contexto ("no está *mal*" ≠ "está *mal*").
+- Se descarga automáticamente (y se guarda en `data/dataset.csv`). Alternativa offline: coloca tu propio
+  `data/dataset.csv` con columnas `text,label` (label = 0/1/2 o positivo/neutral/negativo).
+- Se unen los splits originales y se re-dividen 70/15/15 estratificados.
 
 ## 2. Estructura
 
@@ -21,7 +21,7 @@ proyecto-dl/
 ├── predict.py                       # Carga del modelo y predicción
 ├── app.py                           # Aplicación Streamlit
 ├── utils.py                         # Limpieza de texto, carga de datos, semillas
-├── modelo/                          # modelo_spam.keras + config.json
+├── modelo/                          # modelo_sentimiento.keras + config.json
 ├── reports/                         # gráficas, métricas y predicciones de test
 ├── data/                            # dataset (se descarga solo)
 ├── requirements.txt
@@ -30,17 +30,15 @@ proyecto-dl/
 
 ## 3. Metodología
 
-1. **EDA**: balance de clases, longitud de mensajes, palabras frecuentes por clase, duplicados.
-2. **Limpieza**: minúsculas, normalización de URLs, emails, números largos y símbolos de
-   moneda a tokens especiales; eliminación de duplicados. La puntuación se elimina dentro del modelo.
-3. **División**: 70 % entrenamiento / 15 % validación / 15 % prueba, **estratificada**.
-   El vocabulario se ajusta solo con entrenamiento (sin fuga de datos).
-4. **Modelo**: `TextVectorization → Embedding(mask_zero) → RNN/LSTM/GRU → Dropout → Dense → Sigmoid`.
-   La vectorización va **dentro** del modelo guardado, por lo que el modelo recibe texto.
-5. **Entrenamiento**: Adam (1e-3), `binary_crossentropy`, `class_weight` balanceado,
+1. **EDA**: balance de clases, longitud de textos, palabras frecuentes por clase, duplicados y nulos.
+2. **Limpieza**: minúsculas (conserva tildes y ñ), URLs y @menciones a tokens, reducción de letras repetidas.
+   No se eliminan stopwords porque palabras como "no" o "muy" cambian el sentimiento.
+3. **División**: 70 % / 15 % / 15 % estratificada; el vocabulario se ajusta solo con entrenamiento.
+4. **Modelo**: `TextVectorization → Embedding(mask_zero) → RNN/LSTM/GRU → Dropout → Dense → Softmax(3)`.
+   La vectorización va **dentro** del modelo guardado.
+5. **Entrenamiento**: Adam (1e-3), `sparse_categorical_crossentropy`, `class_weight` balanceado,
    `EarlyStopping` (patience=3) y `ModelCheckpoint`.
-6. **Evaluación**: precision, recall, F1, ROC-AUC y matriz de confusión
-   (la exactitud sola es engañosa con clases desbalanceadas).
+6. **Evaluación**: accuracy, precisión/recall/F1 macro, ROC-AUC uno-contra-resto y matriz de confusión.
 
 ## 4. Instalación
 
@@ -58,16 +56,16 @@ python train.py --model gru        # opciones: rnn | lstm | gru | bilstm
 python train.py --model lstm --epochs 30 --units 128 --dropout 0.5
 ```
 
-Salida: `modelo/modelo_spam.keras`, `modelo/config.json`, y en `reports/` las curvas de
+Salida: `modelo/modelo_sentimiento.keras`, `modelo/config.json`, y en `reports/` las curvas de
 entrenamiento, matriz de confusión, curva ROC, `metrics.json` y `predicciones_test.csv`.
 
-> Alternativa: ejecuta `notebook_experimentacion.ipynb` en Google Colab (GPU opcional),
-> descarga el `.zip` final y descomprímelo dentro de `proyecto-dl/` para obtener `modelo/` y `reports/`.
+> Alternativa: ejecuta `notebook_experimentacion.ipynb` en Google Colab, descarga los dos `.zip` finales
+> y descomprímelos dentro de `proyecto-dl/` para obtener `modelo/` y `reports/`.
 
 ## 6. Predecir por consola
 
 ```bash
-python predict.py "WINNER!! You won a £1000 prize, call 09061701461 now"
+python predict.py "Me encantó el producto, llegó rápido y funciona perfecto"
 ```
 
 ## 7. Ejecutar la aplicación Streamlit
@@ -76,18 +74,18 @@ python predict.py "WINNER!! You won a £1000 prize, call 09061701461 now"
 streamlit run app.py
 ```
 
-Abre http://localhost:8501, escribe un mensaje **en inglés** o usa los ejemplos, y pulsa **Predecir**.
+Abre http://localhost:8501, escribe un texto **en español** o elige un ejemplo, y pulsa **Predecir**.
 
 ## 8. Resultados
 
 Pega aquí tus métricas tras entrenar (están en `reports/metrics.json`):
 
-| Modelo | Accuracy | Precision | Recall | F1 | ROC-AUC |
-|--------|----------|-----------|--------|----|---------|
-| (completa con tus resultados) | | | | | |
+| Modelo | Accuracy | F1 macro | ROC-AUC |
+|--------|----------|----------|---------|
+| (completa con tus resultados) | | | |
 
 ## 9. Limitaciones y trabajo futuro
 
-- Entrenado solo con SMS en inglés; no generaliza a otros idiomas.
-- Dataset pequeño y de una época concreta: el spam moderno puede diferir.
-- Mejoras: embeddings preentrenados (GloVe), ajuste del umbral, comparar con un Transformer.
+- Entrenado con reseñas/comentarios; puede rendir peor en otros dominios.
+- No detecta bien ironía ni sarcasmo; la clase *neutral* suele ser la más difícil.
+- Mejoras: embeddings preentrenados en español, más datos, o un Transformer (BETO).
