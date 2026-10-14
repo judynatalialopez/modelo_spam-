@@ -1,94 +1,87 @@
-"""Aplicación Streamlit - Detector de spam en SMS (Bi-GRU).
+"""Aplicación Streamlit para clasificar SMS como spam o ham.
+
 Ejecutar:  streamlit run app.py
 """
-import json, os
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-import pandas as pd
+import json
+from pathlib import Path
+
 import streamlit as st
-import tensorflow as tf
-from tensorflow import keras
-from spam_utils import clean_text, clean_text_es, MODEL_PATH, MODEL_PATH_ES
 
-st.set_page_config(page_title="Detector de Spam SMS", page_icon="📩", layout="centered")
+from predict import load_model, predict_texts
 
+BASE_DIR = Path(__file__).resolve().parent
+METRICS_PATH = BASE_DIR / "reports" / "metrics.json"
+CONFIG_PATH = BASE_DIR / "modelo" / "config.json"
 
-@st.cache_resource(show_spinner="Cargando modelo entrenado...")
-def get_model(path):
-    return keras.models.load_model(path)
-
-
-def predict_proba(model, messages, cleaner=clean_text):
-    cleaned = tf.constant([cleaner(m) for m in messages], dtype=tf.string)
-    return model.predict(cleaned, verbose=0).ravel()
-
-
-EXAMPLES_ES = {
-    "Spam: premio": "¡Felicidades! Has ganado un premio de 1000 euros. Llama al 09061701461 ahora para reclamarlo.",
-    "Spam: suscripción": "Entrada gratis a nuestro sorteo semanal. Envía GANA al 80086 para recibir tu tono de llamada.",
-    "Ham: cotidiano": "Hola, ¿sigues queriendo almorzar mañana? Avísame a qué hora te viene bien.",
-    "Ham: estudio": "¿Me pasas los apuntes de la clase de hoy? Me perdí la última parte, gracias.",
+EJEMPLOS = {
+    "Spam 1": "WINNER!! As a valued network customer you have been selected to receive a £900 prize reward! Call 09061701461 now.",
+    "Spam 2": "Free entry in a weekly competition to win FA Cup tickets. Text FA to 87121 to receive entry question.",
+    "Ham 1": "Hey, are we still meeting at 6 for dinner? Let me know if you want me to pick you up.",
+    "Ham 2": "I'll call you later, I'm in a meeting right now. Can you send me the notes?",
 }
 
-EXAMPLES = {
-    "Spam: premio": "WINNER!! You have been selected to receive a £900 prize reward. Call 09061701461 now. Claim code KL341.",
-    "Spam: suscripción": "Free entry in a weekly competition! Text WIN to 80086 now to receive your latest ringtone. T&Cs apply.",
-    "Ham: cotidiano": "Hey, are we still meeting for lunch tomorrow? Let me know what time works for you.",
-    "Ham: estudio": "Can you send me the notes from class today? I missed the last part, thanks!",
-}
+st.set_page_config(page_title="Detector de spam SMS", page_icon="📩", layout="centered")
 
-st.title("📩 Detector de Spam en SMS")
-st.caption("Red neuronal recurrente **Bi-GRU** entrenada con SMS Spam Collection (mensajes en inglés).")
 
-LANGS = {"English (modelo base)": (MODEL_PATH, clean_text, EXAMPLES)}
-if os.path.exists(MODEL_PATH_ES):
-    LANGS["Español"] = (MODEL_PATH_ES, clean_text_es, EXAMPLES_ES)
+@st.cache_resource(show_spinner="Cargando modelo...")
+def get_model():
+    return load_model()
 
+
+def read_json(path: Path):
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+# ----------------------------------------------------------------------------
+# Barra lateral: información del modelo
+# ----------------------------------------------------------------------------
+config, metrics = read_json(CONFIG_PATH), read_json(METRICS_PATH)
 with st.sidebar:
-    st.header("⚙️ Configuración")
-    lang = st.selectbox("Idioma del mensaje", list(LANGS), index=len(LANGS) - 1)
-    if len(LANGS) == 1:
-        st.caption("Para español, entrena `notebook_spam_es.ipynb` y copia el modelo a `models/`.")
-    model_path, cleaner, EXAMPLES = LANGS[lang]
-    threshold = st.slider("Umbral de decisión (spam)", 0.05, 0.95, 0.50, 0.05,
-                          help="Si P(spam) ≥ umbral, el mensaje se clasifica como spam.")
-    metrics_file = "reports/metrics.json" if model_path == MODEL_PATH else "reports/metrics_es.json"
-    if os.path.exists(metrics_file):
-        st.header("📊 Métricas en test")
-        for k, v in json.load(open(metrics_file)).items():
-            st.metric(k.upper().replace("_", " "), f"{v:.3f}")
+    st.header("Sobre el modelo")
+    st.write(
+        "Red neuronal recurrente (RNN/LSTM/GRU) entrenada con el dataset "
+        "**SMS Spam Collection** (UCI). Recibe texto y devuelve la probabilidad de spam."
+    )
+    if config:
+        st.caption(f"Arquitectura: **{config['model'].upper()}** · max_len = {config['max_len']}")
+    if metrics:
+        st.subheader("Métricas en test")
+        c1, c2 = st.columns(2)
+        c1.metric("F1", f"{metrics['f1']:.3f}")
+        c2.metric("ROC-AUC", f"{metrics['roc_auc']:.3f}")
+        c1.metric("Precisión", f"{metrics['precision']:.3f}")
+        c2.metric("Recall", f"{metrics['recall']:.3f}")
+    st.info("El modelo fue entrenado con mensajes en **inglés**; escribe los mensajes en ese idioma.")
 
-if not os.path.exists(model_path):
-    st.error(f"No se encontró el modelo en `{model_path}`.")
-    st.stop()
-model = get_model(model_path)
+# ----------------------------------------------------------------------------
+# Cuerpo principal
+# ----------------------------------------------------------------------------
+st.title("📩 Detector de spam en SMS")
+st.write("Escribe un mensaje (en inglés) o elige un ejemplo y pulsa **Predecir**.")
 
-tab1, tab2 = st.tabs(["Mensaje individual", "Varios mensajes (CSV)"])
+if "texto" not in st.session_state:
+    st.session_state["texto"] = ""
 
-with tab1:
-    choice = st.selectbox("Cargar un ejemplo (opcional)", ["—"] + list(EXAMPLES))
-    default = EXAMPLES.get(choice, "")
-    text = st.text_area("Escribe o pega un SMS:", value=default, height=130, key=f"txt_{lang}_{choice}")
-    if st.button("Analizar mensaje", type="primary"):
-        if not text.strip():
-            st.warning("Escribe un mensaje para analizar.")
+cols = st.columns(len(EJEMPLOS))
+for col, (nombre, ejemplo) in zip(cols, EJEMPLOS.items()):
+    if col.button(nombre, use_container_width=True):
+        st.session_state["texto"] = ejemplo
+
+texto = st.text_area("Mensaje", key="texto", height=150, placeholder="Type your SMS here...")
+
+if st.button("Predecir", type="primary"):
+    if not texto.strip():
+        st.warning("Por favor ingresa un mensaje antes de predecir.")
+    else:
+        try:
+            resultado = predict_texts(get_model(), [texto])[0]
+        except FileNotFoundError as e:
+            st.error(str(e))
+            st.stop()
+
+        p = resultado["prob_spam"]
+        if resultado["etiqueta"] == "spam":
+            st.error(f"🚨 **SPAM** — probabilidad de spam: {p:.1%}")
         else:
-            p = float(predict_proba(model, [text], cleaner)[0])
-            is_spam = p >= threshold
-            (st.error if is_spam else st.success)(f"{'🚨 SPAM' if is_spam else '✅ NO ES SPAM (ham)'}  —  P(spam) = {p:.1%}")
-            st.progress(min(max(p, 0.0), 1.0), text="Probabilidad de spam")
-            with st.expander("Ver texto preprocesado"):
-                st.code(cleaner(text))
-
-with tab2:
-    st.write("Sube un CSV con una columna llamada `mensaje` (o `text`) para clasificar varios SMS.")
-    up = st.file_uploader("Archivo CSV", type="csv")
-    if up:
-        df = pd.read_csv(up)
-        col = next((c for c in ("mensaje", "text", "message") if c in df.columns), None)
-        if col is None:
-            st.error("El CSV debe tener una columna `mensaje`, `text` o `message`.")
-        else:
-            df["prob_spam"] = predict_proba(model, df[col].astype(str).tolist(), cleaner).round(4)
-            df["prediccion"] = (df["prob_spam"] >= threshold).map({True: "spam", False: "ham"})
-            st.dataframe(df, use_container_width=True)
-            st.download_button("Descargar resultados", df.to_csv(index=False).encode(), "resultados.csv", "text/csv")
+            st.success(f"✅ **HAM (mensaje legítimo)** — probabilidad de spam: {p:.1%}")
+        st.progress(min(max(p, 0.0), 1.0), text="Probabilidad de spam")

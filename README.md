@@ -1,85 +1,93 @@
-# 📩 Detector de Spam en SMS con Deep Learning (Bi-GRU)
+# 📩 Detección de spam en SMS con RNN / LSTM / GRU
 
-Proyecto de Deep Learning con **redes recurrentes (GRU bidireccional)** para clasificar mensajes SMS como **spam** o **ham** (legítimo), con aplicación web en **Streamlit**.
+Proyecto de Deep Learning para clasificar mensajes SMS como **spam** o **ham** (legítimo)
+usando redes recurrentes (SimpleRNN, LSTM, BiLSTM y GRU) en TensorFlow/Keras, con una
+aplicación web en Streamlit.
 
-## Resultados (conjunto de test, 776 mensajes)
+## 1. Dataset
 
-| Accuracy | Precision | Recall | F1 | ROC-AUC |
-|:-:|:-:|:-:|:-:|:-:|
-| 0.983 | 0.921 | 0.949 | 0.935 | 0.994 |
+- **SMS Spam Collection** (UCI Machine Learning Repository): ~5.574 mensajes en inglés,
+  etiquetados `ham` / `spam`. ~13 % son spam (clases desbalanceadas).
+- Fuente: https://archive.ics.uci.edu/dataset/228/sms+spam+collection
+- Es un problema **secuencial**: el significado depende del orden y contexto de las palabras.
+- Se descarga automáticamente al entrenar. Alternativa: coloca `spam.csv` (versión Kaggle) en `data/`.
 
-## Dataset
-**SMS Spam Collection** (Almeida & Hidalgo, UCI): 5 572 SMS en inglés (4 825 ham / 747 spam). Tras eliminar 403 duplicados quedan 5 167 mensajes (12.6 % spam → clases desbalanceadas, por lo que se evalúa con precisión, recall, F1 y AUC).
-Fuente usada: `https://raw.githubusercontent.com/justmarkham/pycon-2016-tutorial/master/data/sms.tsv` (copia local en `data/sms.tsv`).
+## 2. Estructura
 
-## Estructura
 ```
-spam_project/
-├── notebook_spam_gru.ipynb   # Notebook de experimentación (Google Colab) — inglés
-├── notebook_spam_es.ipynb    # Notebook para entrenar la versión en ESPAÑOL (Colab)
-├── train.py                  # Entrenamiento + EDA + evaluación + gráficas
-├── predict.py                # Predicción por línea de comandos
-├── spam_utils.py             # Limpieza de texto compartida (train/predict/app)
-├── app.py                    # Aplicación Streamlit
-├── models/spam_gru_model.keras   # Modelo entrenado (inglés)
-│   └── spam_gru_model_es.keras   # (lo generas tú con notebook_spam_es.ipynb)
-├── data/sms.tsv              # Dataset
-├── reports/                  # Gráficas (EDA, curvas, matriz de confusión), métricas y predicciones de test
+proyecto-dl/
+├── notebook_experimentacion.ipynb   # Google Colab: EDA, experimentos, evaluación
+├── train.py                         # Entrenamiento por línea de comandos
+├── predict.py                       # Carga del modelo y predicción
+├── app.py                           # Aplicación Streamlit
+├── utils.py                         # Limpieza de texto, carga de datos, semillas
+├── modelo/                          # modelo_spam.keras + config.json
+├── reports/                         # gráficas, métricas y predicciones de test
+├── data/                            # dataset (se descarga solo)
 ├── requirements.txt
 └── README.md
 ```
 
-## Pipeline
-1. **EDA:** distribución de clases, longitud de mensajes, palabras más frecuentes.
-2. **Limpieza:** minúsculas, eliminación de duplicados, normalización de URLs, emails, monedas, teléfonos y números a *tokens*, eliminación de puntuación.
-3. **Split estratificado:** 70 % train / 15 % validación / 15 % test.
-4. **Modelo:** `TextVectorization → Embedding(64) → Bidirectional(GRU 32) → Dropout → Dense(32) → Dropout → Dense(1, sigmoid)` (≈ 533 k parámetros). El vectorizador está **dentro** del modelo, que recibe texto.
-5. **Entrenamiento:** Adam, `binary_crossentropy`, *class weights*, `EarlyStopping` sobre `val_loss`.
-6. **Evaluación:** accuracy, precision, recall, F1, ROC-AUC, matriz de confusión, 15 predicciones de prueba (`reports/predicciones_test.csv` contiene todas).
+## 3. Metodología
 
-## Ejecución local
+1. **EDA**: balance de clases, longitud de mensajes, palabras frecuentes por clase, duplicados.
+2. **Limpieza**: minúsculas, normalización de URLs, emails, números largos y símbolos de
+   moneda a tokens especiales; eliminación de duplicados. La puntuación se elimina dentro del modelo.
+3. **División**: 70 % entrenamiento / 15 % validación / 15 % prueba, **estratificada**.
+   El vocabulario se ajusta solo con entrenamiento (sin fuga de datos).
+4. **Modelo**: `TextVectorization → Embedding(mask_zero) → RNN/LSTM/GRU → Dropout → Dense → Sigmoid`.
+   La vectorización va **dentro** del modelo guardado, por lo que el modelo recibe texto.
+5. **Entrenamiento**: Adam (1e-3), `binary_crossentropy`, `class_weight` balanceado,
+   `EarlyStopping` (patience=3) y `ModelCheckpoint`.
+6. **Evaluación**: precision, recall, F1, ROC-AUC y matriz de confusión
+   (la exactitud sola es engañosa con clases desbalanceadas).
+
+## 4. Instalación
 
 ```bash
-# 1. (Opcional) entorno virtual — Python 3.10–3.12
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-
-# 2. Instalar dependencias
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+```
 
-# 3. (Opcional) reentrenar el modelo (~1 min en CPU). Ya se incluye uno entrenado.
-python train.py
+## 5. Entrenar el modelo
 
-# 4. Predicción por consola
-python predict.py "WINNER!! You won a £1000 prize. Call 09061701461 now"
+```bash
+python train.py                    # BiLSTM (por defecto)
+python train.py --model gru        # opciones: rnn | lstm | gru | bilstm
+python train.py --model lstm --epochs 30 --units 128 --dropout 0.5
+```
 
-# 5. Lanzar la app web
+Salida: `modelo/modelo_spam.keras`, `modelo/config.json`, y en `reports/` las curvas de
+entrenamiento, matriz de confusión, curva ROC, `metrics.json` y `predicciones_test.csv`.
+
+> Alternativa: ejecuta `notebook_experimentacion.ipynb` en Google Colab (GPU opcional),
+> descarga el `.zip` final y descomprímelo dentro de `proyecto-dl/` para obtener `modelo/` y `reports/`.
+
+## 6. Predecir por consola
+
+```bash
+python predict.py "WINNER!! You won a £1000 prize, call 09061701461 now"
+```
+
+## 7. Ejecutar la aplicación Streamlit
+
+```bash
 streamlit run app.py
 ```
-La app se abre en `http://localhost:8501`.
 
-### Funciones de la app
-- Escribir un SMS (o cargar un ejemplo) y ver la probabilidad de spam y el veredicto.
-- Umbral de decisión ajustable en la barra lateral.
-- Métricas del modelo en test.
-- Clasificación por lotes subiendo un CSV con columna `mensaje`, `text` o `message`.
+Abre http://localhost:8501, escribe un mensaje **en inglés** o usa los ejemplos, y pulsa **Predecir**.
 
-> ⚠️ El modelo fue entrenado con mensajes **en inglés**; en otros idiomas las predicciones no son fiables.
+## 8. Resultados
 
-## Google Colab
-1. Sube `notebook_spam_gru.ipynb` a Colab (Archivo → Subir notebook).
-2. Ejecuta *Entorno de ejecución → Ejecutar todo*. El notebook descarga el dataset por sí mismo.
-3. Al final, descarga el modelo (`models/spam_gru_model.keras`) descomentando la línea de `files.download`.
+Pega aquí tus métricas tras entrenar (están en `reports/metrics.json`):
 
-## Versión en español
-El modelo incluido está entrenado en inglés. Para usarlo con mensajes en español:
-1. Sube `notebook_spam_es.ipynb` a Colab y ejecútalo completo (usa el dataset *SMS Spam Multilingual Collection* de Hugging Face).
-2. Descarga `spam_gru_model_es.keras` y `metrics_es.json`.
-3. Cópialos a `models/` y `reports/` respectivamente.
-4. Ejecuta `streamlit run app.py`: aparecerá la opción **Español** en el selector de idioma de la barra lateral.
+| Modelo | Accuracy | Precision | Recall | F1 | ROC-AUC |
+|--------|----------|-----------|--------|----|---------|
+| (completa con tus resultados) | | | | | |
 
-> ⚠️ El español de ese dataset es **traducción automática** del SMS Spam Collection original, no mensajes escritos por personas. El notebook detecta las columnas y filtra el idioma automáticamente; si el CSV tiene un formato distinto, hay variables `TEXT_COL`, `LABEL_COL` y `LANG_COL` para fijarlas a mano.
+## 9. Limitaciones y trabajo futuro
 
-## Solución de problemas
-- **Error al cargar el modelo** (versión de Keras/TensorFlow distinta): ejecuta `python train.py` para regenerarlo con tu versión.
-- **`ModuleNotFoundError: spam_utils`**: ejecuta los comandos desde la carpeta raíz del proyecto.
+- Entrenado solo con SMS en inglés; no generaliza a otros idiomas.
+- Dataset pequeño y de una época concreta: el spam moderno puede diferir.
+- Mejoras: embeddings preentrenados (GloVe), ajuste del umbral, comparar con un Transformer.

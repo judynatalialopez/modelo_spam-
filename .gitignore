@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+data/SMSSpamCollection
+data/*.zip
+modelo/checkpoint.keras
+.ipynb_checkpoints/
