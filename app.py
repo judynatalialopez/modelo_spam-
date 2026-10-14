@@ -5,6 +5,7 @@ Ejecutar:  streamlit run app.py
 import json
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -14,12 +15,14 @@ BASE_DIR = Path(__file__).resolve().parent
 METRICS_PATH = BASE_DIR / "reports" / "metrics.json"
 CONFIG_PATH = BASE_DIR / "modelo" / "config.json"
 
+ORDEN = ["positivo", "neutral", "negativo"]
 EJEMPLOS = {
     "Positivo": "Me encantó, llegó antes de lo esperado y la calidad es excelente. Lo recomiendo totalmente.",
     "Neutral": "El producto es como en la descripción, ni mejor ni peor de lo que esperaba.",
     "Negativo": "Muy mala experiencia, el producto llegó roto y nadie responde mis reclamos.",
 }
 ICONOS = {"positivo": "😊", "neutral": "😐", "negativo": "😞"}
+COLORES = {"positivo": "#2ca02c", "neutral": "#7f7f7f", "negativo": "#d62728"}
 
 st.set_page_config(page_title="Análisis de sentimiento", page_icon="💬", layout="centered")
 
@@ -33,11 +36,14 @@ def read_json(path: Path):
     return json.loads(path.read_text()) if path.exists() else None
 
 
+# ----------------------------------------------------------------------------
+# Barra lateral
+# ----------------------------------------------------------------------------
 config, metrics = read_json(CONFIG_PATH), read_json(METRICS_PATH)
 with st.sidebar:
     st.header("Sobre el modelo")
     st.write(
-        "Red neuronal recurrente (RNN/LSTM/GRU) entrenada con reseñas en español. "
+        "Red neuronal recurrente (RNN/LSTM/GRU) entrenada con textos en español. "
         "Clasifica el texto como **positivo**, **neutral** o **negativo**."
     )
     if config:
@@ -50,6 +56,9 @@ with st.sidebar:
         c1.metric("Precisión macro", f"{metrics['precision_macro']:.3f}")
         c2.metric("Recall macro", f"{metrics['recall_macro']:.3f}")
 
+# ----------------------------------------------------------------------------
+# Cuerpo principal
+# ----------------------------------------------------------------------------
 st.title("💬 Análisis de sentimiento en español")
 st.write("Escribe una reseña o comentario (o elige un ejemplo) y pulsa **Predecir**.")
 
@@ -74,5 +83,25 @@ if st.button("Predecir", type="primary"):
             st.stop()
 
         st.subheader(f"{ICONOS[r['etiqueta']]} {r['etiqueta'].capitalize()} — confianza {r['confianza']:.1%}")
-        probs = pd.Series(r["probabilidades"], name="Probabilidad")
-        st.bar_chart(probs)
+
+        df_probs = pd.DataFrame(
+            {"clase": ORDEN, "probabilidad": [r["probabilidades"][c] for c in ORDEN]}
+        )
+        chart = (
+            alt.Chart(df_probs)
+            .mark_bar()
+            .encode(
+                x=alt.X("clase:N", sort=ORDEN, title=None, axis=alt.Axis(labelAngle=0)),
+                y=alt.Y("probabilidad:Q", scale=alt.Scale(domain=[0, 1]), title="Probabilidad"),
+                color=alt.Color(
+                    "clase:N",
+                    scale=alt.Scale(domain=ORDEN, range=[COLORES[c] for c in ORDEN]),
+                    legend=None,
+                ),
+                tooltip=["clase", alt.Tooltip("probabilidad:Q", format=".1%")],
+            )
+        )
+        st.altair_chart(chart, use_container_width=True)
+
+        if r["confianza"] < 0.5:
+            st.caption("⚠️ Confianza baja: el modelo duda entre varias clases.")
